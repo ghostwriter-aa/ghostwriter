@@ -1,7 +1,8 @@
 # Ghostwriter
 
-This project attempts to attribute authorship of text to specific authors.
-The dataset used is a collection of Reddit posts and comments, with the goal of attributing posts to authors.
+This project attempts to attribute authorship of text to specific authors. The dataset used is a collection of Reddit posts and comments, with the goal of attributing posts to authors.
+
+The commands below are to be run from the `src/` directory.
 
 ## Steps for building the dataset
 
@@ -13,11 +14,16 @@ The dataset used is a collection of Reddit posts and comments, with the goal of 
 
 2. Download the Reddit data.
 
-   The data is aggregated into 1-month files. We have thus far downloaded and used only the 2024-05 month. This will give you the files `RS_2024-05` (submissions) and `RC_2024-05` (comments), which you should place in the `data` directory.
+   The data is aggregated into 1-month files. We have thus far downloaded and used only the 2024-05 month. This will give you the files `RS_2024-05` (submissions) and `RC_2024-05` (comments), which you should place in the `../data` directory (_not_ under `/src`).
 
-3. Run `filter_reddit_dataset.py`, which will create the filtered files `RS_2024-05_filtered` and `RC_2024-05_filtered`. These files have the same format as the original data, but filter out NSFW posts in subreddits where such posts are common, highly active bots, and users with fewer than 10 submissions per month.
+3. Run `data_handling/filter_reddit_dataset.py`, which will create the filtered files `RS_2024-05_filtered` and `RC_2024-05_filtered`. These files have the same format as the original data, but filter out NSFW posts in subreddits where such posts are common, highly active bots, and users with fewer than 10 submissions per month.
 
-4. Run (from src):
+4. Create an empty directory `../summary_data` (not under `/src`) and run `data_handling/build_summary_data.py`, which will create two csv files:
+
+   - `../summary_data/active_subreddits_cutoff_30.csv`, containing the names of subreddits with at least 30 submissions, and the number of submissions in those subreddits.
+   - `../summary_data/prolific_authors_cutoff_30.csv`, containing the names of authors with at least 30 submissions, and the number of submissions they posted.
+
+5. Run:
 
    ```
    python data_handling/build_author_docs_dataset.py --output_file=./../data/suitable_author_infos.ndjson
@@ -25,7 +31,7 @@ The dataset used is a collection of Reddit posts and comments, with the goal of 
 
    This will create an NDJSON file where each line is loadable into a `common_types.AuthorInfo` object. Each entry contains the name of an author with at least 5 submissions in two very different subreddits, as well as the names of those subreddits, and all the user's submissions and comments in those two subreddits.
 
-5. Run:
+6. Run:
 
    ```
    python data_handling/train_test_split.py \
@@ -65,14 +71,10 @@ The dataset used is a collection of Reddit posts and comments, with the goal of 
        --sufficient_tokens=500
    ```
 
-7a. Possible: run baseline_model/data_exploration.ipynb* to get see a comparison of probabilities for tokens to appear in
-different personas.
+8. Optional: run baseline_model/data_exploration.ipynb to get see a comparison of probabilities for tokens to appear in different personas.
 
-8. Run find_best_tokens.ipynb, which will find the best 1-gram single token classifiers. Those will be saved to a file  
+9. Run find_best_tokens.ipynb, which will find the best 1-gram single token classifiers. Those will be saved to a file  
    for later use. In the end of it, you will have the base log-likelihood based model, which achieves ±0.79 accuracy,
    using the 40 best tokens ("best" - in the sense of most accurate 1-gram classifiers).
 
-9. Optional: run additional basic models (base_model/logistic_regression.ipynb, base_model/decision_trees.ipynb), and / or
-   more data exploration (base_model/data_exploration_40_best_tokens.ipynb).
-
-*(Note: ipynb are saved as .py files in the repository, and can be converted to notebooks.)
+10. Optional: run additional basic models (baseline_model/logistic_regression.ipynb, baseline_model/decision_trees.ipynb), and / or more data exploration (baseline_model/data_exploration_40_best_tokens.ipynb).

@@ -43,7 +43,7 @@ def main() -> None:
             subreddit_over18_ratio = subreddit_to_over18_posts.get(subreddit, 0) / (
                 subreddit_to_over18_posts.get(subreddit, 0) + subreddit_to_non_over18_posts.get(subreddit, 0) + 0.1
             )
-            if submission["over_18"] and subreddit_over18_ratio > 0.1:
+            if submission.get("over_18") and subreddit_over18_ratio > 0.1:
                 continue
             n_filtered_submissions += 1
             authors[submission["author"]] += 1
