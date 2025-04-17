@@ -14,7 +14,9 @@ from common import common_types as ct
 from data_handling import reddit_consts
 
 
-def get_subreddit_adjacency_matrix() -> tuple[NDArray[np.int32], list[str], dict[str, dict[str, int]]]:
+def get_subreddit_adjacency_matrix(
+    active_subreddits_file: str, filtered_submissions_file: str
+) -> tuple[NDArray[np.int32], list[str], dict[str, dict[str, int]]]:
     """Builds an adjacency matrix between subreddits.
 
     Returns:
@@ -26,7 +28,7 @@ def get_subreddit_adjacency_matrix() -> tuple[NDArray[np.int32], list[str], dict
             submissions they have in that subreddit.
     """
     # Get very active subreddits: those with over 1000 submissions per month.
-    active_subreddits_df = pd.read_csv(reddit_consts.ACTIVE_SUBREDDITS_FILE)
+    active_subreddits_df = pd.read_csv(active_subreddits_file)
     active_subreddits_df = active_subreddits_df[active_subreddits_df["count"] > 1000]
     active_subreddits_list = active_subreddits_df["subreddit"].tolist()
     active_subreddits = set(active_subreddits_list)
@@ -36,7 +38,7 @@ def get_subreddit_adjacency_matrix() -> tuple[NDArray[np.int32], list[str], dict
     )
     num_legit_submissions = 0
     print("Finding list of authors by subreddit...")
-    with open("../data/RS_2024-05_filtered", "rt") as f:
+    with open(filtered_submissions_file, "rt") as f:
         for line in tqdm.tqdm(f, total=reddit_consts.RS_2024_05_FILTERED_SUBMISSIONS):
             submission = json.loads(line)
             subreddit = submission["subreddit"]
@@ -110,11 +112,11 @@ def get_suitable_authors(
     return list(author_to_author_info.values())
 
 
-def get_submissions_for_authors(author_infos: list[ct.AuthorInfo]) -> None:
+def get_submissions_for_authors(author_infos: list[ct.AuthorInfo], filtered_submissions_file: str) -> None:
     """Adds all author submissions for the relevant subreddits into the provided AuthorInfos."""
     author_info_by_username = {author_info.username: author_info for author_info in author_infos}
     print("Adding submissions to AuthorInfos...")
-    with open("../data/RS_2024-05_filtered", "rt") as f:
+    with open(filtered_submissions_file, "rt") as f:
         for line in tqdm.tqdm(f, total=reddit_consts.RS_2024_05_FILTERED_SUBMISSIONS):
             submission = json.loads(line)
             author = submission["author"]
@@ -131,11 +133,11 @@ def get_submissions_for_authors(author_infos: list[ct.AuthorInfo]) -> None:
             )
 
 
-def get_comments_for_authors(author_infos: list[ct.AuthorInfo]) -> None:
+def get_comments_for_authors(author_infos: list[ct.AuthorInfo], filtered_comments_file: str) -> None:
     """Adds all author comments for the relevant subreddits into the provided AuthorInfos."""
     author_info_by_username = {author_info.username: author_info for author_info in author_infos}
     print("Adding comments to AuthorInfos...")
-    with open("../data/RC_2024-05_filtered", "rt") as f:
+    with open(filtered_comments_file, "rt") as f:
         for line in tqdm.tqdm(f, total=reddit_consts.RC_2024_05_FILTERED_COMMENTS):
             comment = json.loads(line)
             author = comment["author"]
@@ -155,12 +157,36 @@ def main() -> None:
     parser.add_argument(
         "--output_file", type=str, required=True, help="Output NDJSON file containing AuthorInfo objects."
     )
+    parser.add_argument(
+        "--input_submissions",
+        type=str,
+        default="../data/RS_2024-05_filtered",
+        required=False,
+        help="Path to the input filtered submissions file (e.g., ../data/RS_2024-05_filtered).",
+    )
+    parser.add_argument(
+        "--input_comments",
+        type=str,
+        default="../data/RC_2024-05_filtered",
+        required=False,
+        help="Path to the input filtered comments file (e.g., ../data/RC_2024-05_filtered).",
+    )
+    parser.add_argument(
+        "--input_active_subreddits",
+        type=str,
+        default="../summary_data/active_subreddits_cutoff_30.csv",
+        required=False,
+        help="Path to the input CSV file for active subreddits "
+        "(e.g., ../summary_data/active_subreddits_cutoff_30.csv).",
+    )
     args = parser.parse_args()
 
-    adjacency_matrix, active_subreddits_list, subreddit_to_authors_to_num_posts = get_subreddit_adjacency_matrix()
+    adjacency_matrix, active_subreddits_list, subreddit_to_authors_to_num_posts = get_subreddit_adjacency_matrix(
+        args.input_active_subreddits, args.input_submissions
+    )
     suitable_authors = get_suitable_authors(adjacency_matrix, active_subreddits_list, subreddit_to_authors_to_num_posts)
-    get_submissions_for_authors(suitable_authors)
-    get_comments_for_authors(suitable_authors)
+    get_submissions_for_authors(suitable_authors, args.input_submissions)
+    get_comments_for_authors(suitable_authors, args.input_comments)
     with open(args.output_file, "wt") as f:
         for author in suitable_authors:
             f.write(json.dumps(dataclasses.asdict(author)) + "\n")

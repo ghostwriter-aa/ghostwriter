@@ -42,7 +42,7 @@ def main() -> None:
     parser.add_argument(
         "--input_file",
         type=str,
-        default="../data/author_infos.ndjson",
+        default="../data/suitable_author_infos.ndjson",
         help="Input NDJSON file containing AuthorInfo objects.",
     )
     parser.add_argument(
