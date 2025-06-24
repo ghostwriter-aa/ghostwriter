@@ -16,24 +16,68 @@ The commands below are to be run from the `src/` directory.
 
    The data is aggregated into 1-month files. We have thus far downloaded and used only the 2024-05 month. This will give you the files `RS_2024-05` (submissions) and `RC_2024-05` (comments), which you should place in the `../data` directory (_not_ under `/src`).
 
-3. Run `data_handling/filter_reddit_dataset.py`:
+3. Create an empty directory `../summary_data` (not under `/src`).
+
+4. Run `data_handling/filter_reddit_dataset_basic.py`:
+
+   To calculate and save a new NSFW filter:
 
    ```bash
-   python data_handling/filter_reddit_dataset.py \
+   python data_handling/filter_reddit_dataset_basic.py \
        --input_submissions=../data/RS_2024-05 \
        --input_comments=../data/RC_2024-05 \
        --output_submissions=../data/RS_2024-05_filtered \
        --output_comments=../data/RC_2024-05_filtered \
-       --min_submissions_per_author=10
+       --output_nsfw_filter=../summary_data/nsfw_filter.json
    ```
 
-   This will create the filtered files specified in the output arguments. These files have the same format as the original data, but filter out NSFW posts in subreddits where such posts are common, highly active bots, and users with fewer than the specified minimum submissions.
+   Or to use an existing NSFW filter:
 
-4. Create an empty directory `../summary_data` (not under `/src`) and run `data_handling/build_summary_data.py`:
+   ```bash
+   python data_handling/filter_reddit_dataset_basic.py \
+       --input_submissions=../data/RS_2024-05 \
+       --input_comments=../data/RC_2024-05 \
+       --output_submissions=../data/RS_2024-05_filtered \
+       --output_comments=../data/RC_2024-05_filtered \
+       --input_nsfw_filter=../summary_data/nsfw_filter.json
+   ```
+
+   This script will:
+
+   - Either calculate and save a new NSFW filter or use an existing one
+   - Save a filtered version of the submissions and comments to `../data/RS_2024-05_filtered` and `../data/RC_2024-05_filtered`:
+     - Filter out NSFW posts in subreddits where such posts are common
+     - Filter out submissions and comments from highly active bots
+     - Only keep fields that change and are needed (i.e. keep "author", "subreddit", "title", etc.)
+
+   For the reddit May 2024 dataset, the resulting files will be ~15 GB for submissions and ~100 GB for comments.
+
+5. Run `data_handling/filter_authors_by_content_length.py`:
+
+   ```bash
+   python data_handling/filter_authors_by_content_length.py \
+       --input_submissions=../data/RS_2024-05_filtered \
+       --input_comments=../data/RC_2024-05_filtered \
+       --output_file=../data/authors_at_least_20_000_characters.jsonl \
+       --output_submissions=../data/RS_2024-05_filtered_prolific_authors \
+       --output_comments=../data/RC_2024-05_filtered_prolific_authors \
+       --output_author_and_subreddit_to_stats=../data/author_and_subreddit_to_stats.jsonl \
+       --min_characters=10000
+   ```
+
+   This script:
+
+   - Counts the number of characters, comments, and posts per author and subreddit
+   - Filters authors who have written at least the minimum number of characters in at least two subreddits, referred to as "prolific authors"
+   - Creates filtered submission and comment files containing only prolific authors
+   - Saves statistics about character counts, comments, and posts per author and subreddit
+
+6. Run `data_handling/build_summary_data.py`:
 
    ```bash
    python data_handling/build_summary_data.py \
        --input_submissions=../data/RS_2024-05_filtered \
+       --input_comments=../data/RC_2024-05_filtered \
        --output_authors=../summary_data/prolific_authors_cutoff_30.csv \
        --output_subreddits=../summary_data/active_subreddits_cutoff_30.csv \
        --author_cutoff=30 \
@@ -45,19 +89,21 @@ The commands below are to be run from the `src/` directory.
    - `../summary_data/active_subreddits_cutoff_30.csv`, containing the names of subreddits with at least 30 submissions, and the number of submissions in those subreddits.
    - `../summary_data/prolific_authors_cutoff_30.csv`, containing the names of authors with at least 30 submissions, and the number of submissions they posted.
 
-5. Run:
+7. Run:
 
    ```bash
    python data_handling/build_author_docs_dataset.py \
-       --input_submissions=../data/RS_2024-05_filtered \
-       --input_comments=../data/RC_2024-05_filtered \
+       --input_submissions=../data/RS_2024-05_filtered_prolific_authors \
+       --input_comments=../data/RC_2024-05_filtered_prolific_authors \
        --input_active_subreddits=../summary_data/active_subreddits_cutoff_30.csv \
+       --input_author_and_subreddit_to_stats=../data/author_and_subreddit_to_stats.jsonl \
+       --input_prolific_authors=../data/authors_at_least_20_000_characters.jsonl \
        --output_file=../data/suitable_author_infos.ndjson
    ```
 
-   This will create an NDJSON file where each line is loadable into a `common_types.AuthorInfo` object. Each entry contains the name of an author with at least 5 submissions in two very different subreddits, as well as the names of those subreddits, and all the user's submissions and comments in those two subreddits.
+   This will create an NDJSON file where each line is loadable into a `common_types.AuthorInfo` object. Each entry contains the name of an author with at least 10000 characters in two very different subreddits, as well as the names of those subreddits, and all the user's submissions and comments in those two subreddits.
 
-6. Run:
+8. Run:
 
    ```bash
    python data_handling/train_test_split.py \
@@ -69,7 +115,7 @@ The commands below are to be run from the `src/` directory.
 
 ## Running the baseline model
 
-6. To create the common tokens file, run:
+9. To create the common tokens file, run:
 
    ```bash
    python baseline_model/get_token_frequencies.py \
@@ -81,30 +127,10 @@ The commands below are to be run from the `src/` directory.
 
    This will create a file with the 1000 most common tokens in the dataset, with at least 20 authors using those tokens.
 
-7. Filter authors even further - those who have at least 500 tokens from the 1000 most common ones.
+10. Optional: run baseline_model/data_exploration.ipynb to get see a comparison of probabilities for tokens to appear in different personas.
 
-   ```bash
-   python baseline_model/filter_authors_according_to_num_of_tokens.py \
-       --input_author_infos=../data/suitable_author_infos_train.ndjson \
-       --output_file=../data/author_infos_many_tokens_train.ndjson \
-       --most_frequent_tokens_file=../data/tiktoken_counts_top_1000.json \
-       --sufficient_tokens=500
-   ```
+11. Run find_best_tokens.ipynb, which will find the best 1-gram single token classifiers. Those will be saved to a file
+    for later use. In the end of it, you will have the base log-likelihood based model, which achieves ±0.79 accuracy,
+    using the 40 best tokens ("best" - in the sense of most accurate 1-gram classifiers).
 
-   For the validation set:
-
-   ```bash
-   python baseline_model/filter_authors_according_to_num_of_tokens.py \
-       --input_author_infos=../data/suitable_author_infos_val.ndjson \
-       --output_file=../data/author_infos_many_tokens_val.ndjson \
-       --most_frequent_tokens_file=../data/tiktoken_counts_top_1000.json \
-       --sufficient_tokens=500
-   ```
-
-8. Optional: run baseline_model/data_exploration.ipynb to get see a comparison of probabilities for tokens to appear in different personas.
-
-9. Run find_best_tokens.ipynb, which will find the best 1-gram single token classifiers. Those will be saved to a file
-   for later use. In the end of it, you will have the base log-likelihood based model, which achieves ±0.79 accuracy,
-   using the 40 best tokens ("best" - in the sense of most accurate 1-gram classifiers).
-
-10. Optional: run additional basic models (baseline_model/logistic_regression.ipynb, baseline_model/decision_trees.ipynb), and / or more data exploration (baseline_model/data_exploration_40_best_tokens.ipynb).
+12. Optional: run additional basic models (baseline_model/logistic_regression.ipynb, baseline_model/decision_trees.ipynb), and / or more data exploration (baseline_model/data_exploration_40_best_tokens.ipynb).

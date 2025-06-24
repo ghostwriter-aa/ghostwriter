@@ -1,4 +1,4 @@
-#%% md
+# %% [markdown]
 # # Find the best tokens to use as a classifier
 # 
 # The file contains the following functions and executes the following steps:
@@ -11,7 +11,8 @@
 # 7. Saves the success probabilities to a file.
 # 8. Plots the log-likelihood histogram with the "optimal" 40 tokens.
 # 9. Plots a graph representing the accuracy of the classifier that uses the first $n$ best tokens.
-#%%
+
+# %%
 import json
 from collections import Counter
 from typing import Dict, List, Tuple
@@ -25,17 +26,23 @@ from common import tokenization
 
 from baseline_model.token_stats import TokenStats
 from baseline_model import utils
-#%%
+
+
+TIKTOKEN_COUNTS_TOP_1000_FILE = "../../data/tiktoken_counts_top_1000.json"
+TOP_1000_TOKENS_SUCCESS_PROBS_FILE = "../../data/top_1000_tokens_success_probs.json"
+
+# %%
 tokenizer = tokenization.get_tokenizer()
 
-common_tokens = np.array([tok[0] for tok in json.load(open("../../data/tiktoken_counts_top_1000.json", "rt"))]) # Gets the 1000 most common tokens in the dataset.
+common_tokens = np.array([tok[0] for tok in json.load(open(TIKTOKEN_COUNTS_TOP_1000_FILE, "rt"))]) # Gets the 1000 most common tokens in the dataset.
 common_token_strings = [tokenizer.decode([tok]) for tok in common_tokens]
 print(f"Loaded the {len(common_tokens)} most common tokens. The first 20 are:")
 print(" ".join(repr(tok) for tok in common_token_strings[:20]))
 
 train_validate_author_to_personas_counters = utils.get_train_validate_author_to_personas_counters(tokenizer)
 
-#%%
+
+# %%
 def find_best_cutoff(dist_1_samples, dist_2_samples, possible_cutoffs: np.ndarray, verbose=True) -> Tuple[int, int]:
     """
     Find the best cutoff for maximizing accuracy when classifying between samples of two distributions.
@@ -60,7 +67,8 @@ def find_best_cutoff(dist_1_samples, dist_2_samples, possible_cutoffs: np.ndarra
         for result in results[:7]:
             print("Cutoff: {:>5}, Matching: {:.4f}, Mismatching: {:.4f}, Success Probability: {:.4f}".format(*result))
     return results[0][0], results[0][3]
-#%%
+
+# %%
 def plot_likelihood_histogram(
     matching_likelihoods: NDArray[np.float32],
     mismatching_likelihoods: NDArray[np.float32],
@@ -123,7 +131,8 @@ def plot_likelihood_histogram(
     plt.xlim(range_min, range_max)
 
     plt.show()
-#%%
+
+# %%
 def find_best_cutoff_and_plot(authors_counters: Dict[str, List[Counter]],
                               tokens_to_use,
                               title: str = '',
@@ -155,7 +164,8 @@ def find_best_cutoff_and_plot(authors_counters: Dict[str, List[Counter]],
         stats[0].log_likelihood(stats[1]) for stats in good_author_personas_sparse_stats
     ]
     mismatching_likelihoods = [
-        [stats1[0].log_likelihood(stats2[1]) for stats2 in good_author_personas_sparse_stats[i + 1:]]
+        # Note that we are not calculating all mismatches, as it would be computationally heavy. We consider only the five authors subsequest the current one.
+        [stats1[0].log_likelihood(stats2[1]) for stats2 in good_author_personas_sparse_stats[i + 1: min(i + 5, len(good_author_personas_sparse_stats))]]
         for i, stats1 in enumerate(good_author_personas_sparse_stats)
     ]
     mismatching_likelihoods = sum(mismatching_likelihoods, start=[])
@@ -170,50 +180,59 @@ def find_best_cutoff_and_plot(authors_counters: Dict[str, List[Counter]],
     cutoff, success = find_best_cutoff(matching_likelihoods, mismatching_likelihoods, possible_cutoffs=possible_cutoffs, verbose=verbose)
 
     return cutoff, success, matching_likelihoods, mismatching_likelihoods
-#%% md
+
+# %% [markdown]
 # ## Plot the log-likelihood ratio
-#%% md
+
+# %% [markdown]
 # $LL = \frac{\sum N_i \log p_i}{\sum N_i}$ where:
 # 
 # $N_i$: token count in target persona
 # 
 # $p_i$: token probability in source persona
-#%%
+
+# %%
 N = 1000
 arm = "val"
 cutoff, success, matching_likelihoods, mismatching_likelihoods = find_best_cutoff_and_plot(
     train_validate_author_to_personas_counters[arm], common_tokens[:N], range_min=-13, range_max=-7,
     title=f"Log likelihood histogram from {N} most common tokens ({arm} set)"
 )
-#%%
+
+# %%
 # calculate the success probabilities of using each of the 1000 most common tokens as a 1-gram Log Likelihood classifier
 success_probs = []
 for i in tqdm(range(1000)):
     _, success, _, _ = find_best_cutoff_and_plot(train_validate_author_to_personas_counters["train"], common_tokens[i:i + 1], verbose=False)
     success_probs.append((i, success))
-#%%
-success_probs_with_token = {
-    "columns": ("Index in 1000 common token", "Distinguishing success probability using 1-gram of this token", "token integer"),
-    "data": [(s[0], s[1], int(common_tokens[s[0]])) for s in success_probs]
-}
-with open("../../data/top_1000_tokens_success_probs.json", "wt") as f:
-    json.dump(success_probs_with_token, f)
-#%%
-with open("../../data/top_1000_tokens_success_probs.json", "rt") as f:
-    success_probs_with_token = json.load(f)
-success_probs = [(s[0], s[1]) for s in success_probs_with_token["data"]]
-#%%
+
 sorted_success_probs = sorted(success_probs, key=lambda x: x[1], reverse=True)
-#%% md
+    
+sorted_success_probs_with_token = {
+    "columns": ("Index in 1000 common token", "Distinguishing success probability using 1-gram of this token", "token integer"),
+    "data": [(s[0], s[1], int(common_tokens[s[0]])) for s in sorted_success_probs]
+}
+with open(TOP_1000_TOKENS_SUCCESS_PROBS_FILE, "wt") as f:
+    json.dump(sorted_success_probs_with_token, f)
+
+# %%
+with open(TOP_1000_TOKENS_SUCCESS_PROBS_FILE, "rt") as f:
+    success_probs_with_token = json.load(f)
+sorted_success_probs = sorted([(s[0], s[1]) for s in success_probs_with_token["data"]], key=lambda x: x[1], reverse=True)
+
+# %% [markdown]
 # Here is a list of the top 20 tokens achieving highest accuracy as individual classifiers:
-#%%
+
+# %%
 for i in range(20):
     print("{:.4f}: {!r}".format(sorted_success_probs[i][1], tokenizer.decode([common_tokens[sorted_success_probs[i][0]]])))
-#%% md
+
+# %% [markdown]
 # ### Log-likelihood histogram with the "optimal" 40 tokens
 # These are the 40 tokens that give the best accuracy when used as individual classifiers.
 # 
-#%%
+
+# %%
 N = 40
 arm = "train"
 training_cutoff, success_of_training_cutoff, _, _ = find_best_cutoff_and_plot(
@@ -225,24 +244,28 @@ training_cutoff, success_of_training_cutoff, _, _ = find_best_cutoff_and_plot(
     verbose=False
 )
 print(f"Training cutoff: {training_cutoff}, success: {success_of_training_cutoff}")
-#%%
-N = 40
+
+# %%
+N = 60
 arm = "val"
 res = find_best_cutoff_and_plot(train_validate_author_to_personas_counters[arm], common_tokens[[ssp[0] for ssp in sorted_success_probs[:N]]],
                                 range_min=-15, range_max=-5,
                                 title=f"Distribution from the {N} highest-information tokens ({arm} set)",
                                 possible_cutoffs=np.array([training_cutoff]))
-#%% md
+
+# %% [markdown]
 # ### A graph representing the accuracy of the classifier that uses the first $n$ best tokens
 # "Best" in the sense that their 1-grams are the best lone classifiers.
-#%%
+
+# %%
 first_best_tokens_success = []
 for i in tqdm(range(100)):
     training_cutoff_temp, _, _, _ = find_best_cutoff_and_plot(train_validate_author_to_personas_counters["train"], common_tokens[[ssp[0] for ssp in sorted_success_probs[:i]]], verbose=False)
     _, validation_success, _, _ = find_best_cutoff_and_plot(train_validate_author_to_personas_counters["train"], common_tokens[[ssp[0] for ssp in sorted_success_probs[:i]]], possible_cutoffs=np.array([training_cutoff_temp]), verbose=False)
     first_best_tokens_success.append((i, validation_success))
 
-#%%
+
+# %%
 first_best_tokens_success_arr = np.array(first_best_tokens_success)
 
 plt.plot(first_best_tokens_success_arr[:,0], first_best_tokens_success_arr[:,1])
@@ -250,4 +273,5 @@ plt.xlabel("Number of tokens used by classifier")
 plt.ylabel("Accuracy")
 plt.title("Accuracy by number of high-information tokens used")
 plt.show()
-#%%
+
+

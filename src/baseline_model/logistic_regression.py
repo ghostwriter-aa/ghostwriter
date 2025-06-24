@@ -1,4 +1,4 @@
-#%% md
+# %% [markdown]
 # # Logistic regression model
 # Train a logistic regression model on the following features:
 # $
@@ -7,7 +7,8 @@
 # where $p_i$ are from one persona, and $N_i$ are from another persona.
 # 
 # Thus, the minimum performance should be that of log likelihood (as the logistic regression model can recover all ones coefficients).  
-#%%
+
+# %%
 import importlib
 from typing import Dict, Tuple, List, Sequence
 from collections import Counter
@@ -24,7 +25,8 @@ from common import tokenization
 importlib.reload(utils)
 
 tokenizer = tokenization.get_tokenizer()
-#%%
+
+# %%
 def create_positive_and_negative_examples(
     authors_features: Dict[str, Tuple[Counter[int], Counter[int]]],
     token_list: Sequence[int]
@@ -72,9 +74,12 @@ def create_positive_and_negative_examples(
     
     return X, y
     
-#%%
+
+# %%
 train_validate_author_to_personas_counters = utils.get_train_validate_author_to_personas_counters(tokenization.get_tokenizer())
-forty_tokens_to_use = [token_int for _, _, token_int in utils.load_1000_most_common_tokens_sorted_by_1_gram_accuracies()][:40]
+forty_tokens_to_use = [
+    token_int for _, _, token_int in utils.load_1000_most_common_tokens_sorted_by_1_gram_accuracies()
+][:40]
 print("Top 40 tokens:")
 print(" ".join([repr(tokenizer.decode([forty_tokens_to_use[i]])) for i in range(len(forty_tokens_to_use))]))
 
@@ -82,7 +87,8 @@ print(" ".join([repr(tokenizer.decode([forty_tokens_to_use[i]])) for i in range(
 positive_negative_examples_pairs_of_log_nonz_probabilities = {}
 for arm in ["train", "val"]:
     positive_negative_examples_pairs_of_log_nonz_probabilities[arm] = create_positive_and_negative_examples(train_validate_author_to_personas_counters[arm], forty_tokens_to_use)
-#%%
+
+# %%
 X_train, y_train = positive_negative_examples_pairs_of_log_nonz_probabilities["train"]
 X_validate, y_validate = positive_negative_examples_pairs_of_log_nonz_probabilities["val"]
 
@@ -92,3 +98,5 @@ lr_model.fit(X_train, y_train)
 # Score
 print(f"Training accuracy: {lr_model.score(X_train, y_train):.4f}")
 print(f"Validation accuracy: {lr_model.score(X_validate, y_validate):.4f}")
+
+

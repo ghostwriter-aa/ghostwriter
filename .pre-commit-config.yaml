@@ -1,0 +1,45 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.9
+    hooks:
+      - id: ruff
+        args:
+          - --fix
+          - --line-length=120
+          - --extend-exclude=*.ipynb
+          - --select=A,FIX002,E501,I001,F401,F541,F841,F823,PIE790,N806,RET504,N801,PLC2701,ERA001,PERF102
+          - --preview
+      - id: ruff-format
+        args:
+          - --line-length=120
+          - --exclude=*.ipynb
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.11.2
+    hooks:
+      - id: mypy
+        exclude: venv
+        language: system
+        files: src/
+        args: [--strict, --implicit-reexport, --explicit-package-bases]
+  - repo: https://github.com/pre-commit/mirrors-prettier
+    rev: v3.1.0
+    hooks:
+      - id: prettier
+  - repo: local
+    hooks:
+      - id: prevent-private-imports
+        name: Prevent Private Imports
+        entry: ^\s*from\s+[a-zA-Z_]+\._[a-zA-Z_]+\s+import\s+[a-zA-Z_]+(?:,\s*[a-zA-Z_]+)*$
+        language: pygrep
+        types: [python]
+        exclude: .pre-commit-config.yaml
+  - repo: https://github.com/pre-commit/mirrors-clang-format
+    rev: v19.1.1
+    hooks:
+      - id: clang-format
+        types_or: [c++, c, cuda]
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.5.0
+    hooks:
+      - id: detect-secrets
+        exclude: summary_data|.*/README.md|.github/|.*ipynb
