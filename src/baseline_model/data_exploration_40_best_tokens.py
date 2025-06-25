@@ -1,9 +1,10 @@
-#%% md
+# %% [markdown]
 # # Data Exploration
 # - Plot 2D histogram of the log likelihoods of a token for the two personas of each author.
 # - Create a plot of the first three most influential components of the PCA of positive and negative examples. The data is of the log probabilities of the top 40 tokens for two personas (of the same and different authors).
 # 
-#%%
+
+# %%
 import importlib
 
 import numpy as np
@@ -19,18 +20,26 @@ from common import tokenization
 importlib.reload(utils)
 
 tokenizer = tokenization.get_tokenizer()
-#%%
+
+TOP_1000_TOKENS_SUCCESS_PROBS_FILE = "../../data/top_1000_tokens_success_probs.json"
+
+# %%
 train_validate_author_to_personas_counters = utils.get_train_validate_author_to_personas_counters(tokenizer)
-forty_tokens_to_use = [token_int for _, _, token_int in utils.load_1000_most_common_tokens_sorted_by_1_gram_accuracies()][:40]
+forty_tokens_to_use = [
+    token_int for _, _, token_int
+    in utils.load_1000_most_common_tokens_sorted_by_1_gram_accuracies(TOP_1000_TOKENS_SUCCESS_PROBS_FILE)
+][:40]
 print("Top 40 tokens:")
 print(" ".join([repr(tokenizer.decode([forty_tokens_to_use[i]])) for i in range(len(forty_tokens_to_use))]))
-#%%
+
+# %%
 author_train_stats = [
     (TokenStats.from_counts(train_validate_author_to_personas_counters["train"][author_username][0], forty_tokens_to_use).log_nonz_token_freq_with_excluded_tokens,
      TokenStats.from_counts(train_validate_author_to_personas_counters["train"][author_username][1], forty_tokens_to_use).log_nonz_token_freq_with_excluded_tokens)
     for author_username in train_validate_author_to_personas_counters["train"].keys()
 ]
-#%%
+
+# %%
 for j in range(3):
     fig = plt.figure(figsize=(5, 5), facecolor='white')
     fig.patch.set_facecolor('white')
@@ -40,9 +49,11 @@ for j in range(3):
     plt.xlabel('Persona 1 log probability')
     plt.ylabel('Persona 2 log probability')
     plt.show()
-#%% md
+
+# %% [markdown]
 # ## PCA analysis
-#%%
+
+# %%
 def plot3d(
         X,
         labels=None,
@@ -88,7 +99,8 @@ def plot3d(
     
     # Show the plot
     fig.show()
-#%%
+
+# %%
 def analyze_and_visualize_svd_interactive(X, labels):
     """
     Perform SVD/PCA analysis and create interactive 3D visualization
@@ -110,12 +122,18 @@ def analyze_and_visualize_svd_interactive(X, labels):
     
     
     plot3d(X_transformed, labels)
-#%%
+
+# %%
 author_to_log_nonz_persona_pairs = utils.convert_counters_to_log_nonz_probs_in_username_to_persona_counters(train_validate_author_to_personas_counters["train"], forty_tokens_to_use)
 positive_negative_examples_pairs_of_log_nonz_probabilities = utils.create_positive_and_negative_examples_form_persona_pairs(author_to_log_nonz_persona_pairs)
-#%%
+
+# %%
 analyze_and_visualize_svd_interactive(positive_negative_examples_pairs_of_log_nonz_probabilities[0], positive_negative_examples_pairs_of_log_nonz_probabilities[1])
-#%%
+
+# %%
 positive_negative_examples_pairs_of_log_nonz_probabilities[0]
-#%%
+
+# %%
     
+
+

@@ -1,6 +1,7 @@
-#%% md
+# %% [markdown]
 # # Data exploration - plot token probabilities of personas of an author
-#%%
+
+# %%
 import json
 
 import matplotlib.pyplot as plt
@@ -11,9 +12,14 @@ from baseline_model import utils
 from common import tokenization
 
 from baseline_model.token_stats import TokenStats
-#%%
+
+TIKTOKEN_COUNTS_TOP_1000_FILE = "../../data/tiktoken_counts_top_1000.json"
+
+
+# %%
 plt.rcParams["font.family"] = "Arial Unicode MS"
-#%%
+
+# %%
 def plot_comparison_token_stats(
     stats1: TokenStats,
     stats2: TokenStats,
@@ -63,21 +69,38 @@ def plot_comparison_token_stats(
         plt.title(title)
     plt.show()
 
-#%%
+
+# %%
 train_validate_author_to_personas_counters = utils.get_train_validate_author_to_personas_counters(tokenization.get_tokenizer())
-with open("../../data/tiktoken_counts_top_1000.json") as f:
+with open(TIKTOKEN_COUNTS_TOP_1000_FILE, "rt") as f:
     tokens_to_use =[token for token, _ in json.load(f)]
-#%%
+
+
+
+
+
+
+
+
+
+
+
+# %%
 author_to_persona_stats = {}
 for author_username, author_counters in train_validate_author_to_personas_counters["train"].items():
     author_to_persona_stats[author_username] = (
         TokenStats.from_counts(author_counters[0], tokens_to_use),
         TokenStats.from_counts(author_counters[1], tokens_to_use),
     )
-#%%
+
+# %%
 author_index = 42 # Change this to see the token stats comparison of different authors
 author_names = list(author_to_persona_stats.keys())
 author_name = author_names[author_index]
 personas_stats = author_to_persona_stats[author_name]
 plot_comparison_token_stats(personas_stats[0], personas_stats[1], tokenization.get_tokenizer(), title=author_name, label1="persona_1", label2="persona_2")
-#%%
+
+# %%
+
+
+

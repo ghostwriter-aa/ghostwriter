@@ -14,8 +14,21 @@ from common import common_types as ct
 from data_handling import reddit_consts
 
 
+def load_prolific_authors(prolific_authors_file: str) -> set[str]:
+    """Load the list of prolific authors from a file."""
+    print("Loading prolific authors...")
+    prolific_authors = set()
+    with open(prolific_authors_file, "rt") as f:
+        for line in f:
+            prolific_authors.add(line.strip())
+    print(f"Loaded {len(prolific_authors)} prolific authors")
+    return prolific_authors
+
+
 def get_subreddit_adjacency_matrix(
-    active_subreddits_file: str, filtered_submissions_file: str
+    active_subreddits_file: str,
+    author_and_subreddit_to_stats_file: str,
+    prolific_authors: set[str],
 ) -> tuple[NDArray[np.int32], list[str], dict[str, dict[str, int]]]:
     """Builds an adjacency matrix between subreddits.
 
@@ -24,8 +37,8 @@ def get_subreddit_adjacency_matrix(
             subreddits i and j.
         active_subreddits_list: A list of subreddit names in the same order as the rows and columns of the adjacency
             matrix.
-        subreddit_to_author_to_num_posts: A mapping from subreddit names to a mapping of authors and the number of
-            submissions they have in that subreddit.
+        subreddit_to_author_to_num_characters: A mapping from subreddit names to a mapping of authors and the number of
+            characters they have in that subreddit.
     """
     # Get very active subreddits: those with over 1000 submissions per month.
     active_subreddits_df = pd.read_csv(active_subreddits_file)
@@ -33,57 +46,51 @@ def get_subreddit_adjacency_matrix(
     active_subreddits_list = active_subreddits_df["subreddit"].tolist()
     active_subreddits = set(active_subreddits_list)
 
-    subreddit_to_author_to_num_posts: dict[str, dict[str, int]] = collections.defaultdict(
+    subreddit_to_author_to_num_characters: dict[str, dict[str, int]] = collections.defaultdict(
         lambda: collections.defaultdict(int)
     )
-    num_legit_submissions = 0
-    print("Finding list of authors by subreddit...")
-    with open(filtered_submissions_file, "rt") as f:
-        for line in tqdm.tqdm(f, total=reddit_consts.RS_2024_05_FILTERED_SUBMISSIONS):
-            submission = json.loads(line)
-            subreddit = submission["subreddit"]
-            if subreddit not in active_subreddits:
+    print("Loading character counts per author per subreddit...")
+    with open(author_and_subreddit_to_stats_file, "rt") as f:
+        for line in tqdm.tqdm(f):
+            data = json.loads(line)
+            subreddit = data["subreddit"]
+            author = data["author"]
+            if subreddit not in active_subreddits or author not in prolific_authors:
                 continue
-            if submission["author"] in reddit_consts.USERS_TO_IGNORE:
-                # We should be running on filtered data, so this is not expected to occur.
-                # Keeping this here as long as we are still running on old versions of the data.
-                continue
-            num_legit_submissions += 1
-            subreddit_to_author_to_num_posts[subreddit][submission["author"]] += 1
+            subreddit_to_author_to_num_characters[subreddit][author] = data["num_characters"]
 
     print("Building adjacency matrix...")
+    # Pre-compute all author sets to avoid repeated set() calculations
+    author_sets = [set(subreddit_to_author_to_num_characters[subreddit]) for subreddit in active_subreddits_list]
     adjacency_matrix = np.zeros((len(active_subreddits_list), len(active_subreddits_list)), dtype=np.int32)
-    for i, subreddit1 in enumerate(tqdm.tqdm(active_subreddits_list)):
-        authors1 = set(subreddit_to_author_to_num_posts[subreddit1])
-        for j, subreddit2 in enumerate(active_subreddits_list):
-            if j >= i:
-                break
-            authors2 = set(subreddit_to_author_to_num_posts[subreddit2])
-            adjacency_matrix[i, j] = len(authors1 & authors2)
+    for i, authors1 in enumerate(tqdm.tqdm(author_sets)):
+        for j in range(i):
+            adjacency_matrix[i, j] = len(authors1 & author_sets[j])
     adjacency_matrix = adjacency_matrix + adjacency_matrix.T  # type: ignore
-    return adjacency_matrix, active_subreddits_list, subreddit_to_author_to_num_posts
+    return adjacency_matrix, active_subreddits_list, subreddit_to_author_to_num_characters
 
 
 def get_suitable_authors(
     adjacency_matrix: NDArray[np.int32],
     active_subreddits_list: list[str],
-    subreddit_to_author_to_num_posts: dict[str, dict[str, int]],
-    min_author_posts_per_subreddit: int = 5,
+    subreddit_to_author_to_num_characters: dict[str, dict[str, int]],
+    min_author_chars_per_subreddit: int = 5000,
 ) -> list[ct.AuthorInfo]:
     """Finds authors who *uniquely* post in two unrelated subreddits.
 
     Here, "uniquely" means no other author posts in those two subreddits.
 
     Args:
-        adjacency_matrix, active_subreddits_list, subreddit_to_author_to_num_posts: As returned from
+        adjacency_matrix, active_subreddits_list, subreddit_to_author_to_num_characters: As returned from
             get_subreddit_adjacency_matrix.
-        min_author_posts_per_subreddit: Minimum number of submissions an author must have in two distinct channels in
-            or to qualify as suitable.
+        min_author_chars_per_subreddit: Minimum number of characters an author must have in two distinct channels in
+            order to qualify as suitable.
 
     Returns:
         List of AuthorInfo objects with only the username and persona subreddits filled in
         (no submissions or comments).
     """
+    print("Finding suitable authors...")
     author_to_author_info: dict[str, ct.AuthorInfo] = {}
     for subreddit1_idx, subreddit1 in enumerate(tqdm.tqdm(active_subreddits_list)):
         neighbors = adjacency_matrix[subreddit1_idx, :]
@@ -94,16 +101,16 @@ def get_suitable_authors(
         potential_matches = np.where(adjacency_matrix[subreddit1_idx, :] == 1)[0]
         for subreddit2_idx in potential_matches:
             subreddit2 = active_subreddits_list[subreddit2_idx]
-            joint_authors = set(subreddit_to_author_to_num_posts[subreddit1]) & set(
-                subreddit_to_author_to_num_posts[subreddit2]
+            joint_authors = set(subreddit_to_author_to_num_characters[subreddit1]) & set(
+                subreddit_to_author_to_num_characters[subreddit2]
             )
             assert len(joint_authors) == 1, f"Expected 1 author, got {joint_authors}"
             author = joint_authors.pop()
             if author in author_to_author_info:
                 continue  # We already have two other personas for this author, so skip these.
-            if subreddit_to_author_to_num_posts[subreddit1][author] < min_author_posts_per_subreddit:
+            if subreddit_to_author_to_num_characters[subreddit1][author] < min_author_chars_per_subreddit:
                 continue
-            if subreddit_to_author_to_num_posts[subreddit2][author] < min_author_posts_per_subreddit:
+            if subreddit_to_author_to_num_characters[subreddit2][author] < min_author_chars_per_subreddit:
                 continue
             author_to_author_info[author] = ct.AuthorInfo(
                 username=author,
@@ -160,14 +167,14 @@ def main() -> None:
     parser.add_argument(
         "--input_submissions",
         type=str,
-        default="../data/RS_2024-05_filtered",
+        default="../data/RS_2024-05_filtered_prolific_authors",
         required=False,
         help="Path to the input filtered submissions file (e.g., ../data/RS_2024-05_filtered).",
     )
     parser.add_argument(
         "--input_comments",
         type=str,
-        default="../data/RC_2024-05_filtered",
+        default="../data/RC_2024-05_filtered_prolific_authors",
         required=False,
         help="Path to the input filtered comments file (e.g., ../data/RC_2024-05_filtered).",
     )
@@ -179,12 +186,30 @@ def main() -> None:
         help="Path to the input CSV file for active subreddits "
         "(e.g., ../summary_data/active_subreddits_cutoff_30.csv).",
     )
+    parser.add_argument(
+        "--input_author_and_subreddit_to_stats",
+        type=str,
+        default="../data/author_and_subreddit_to_stats.jsonl",
+        required=False,
+        help="Path to the input author and subreddit to stats file "
+        "(e.g., ../data/author_and_subreddit_to_stats.jsonl).",
+    )
+    parser.add_argument(
+        "--input_prolific_authors",
+        type=str,
+        default="../data/authors_at_least_20_000_characters.jsonl",
+        required=False,
+        help="Path to the input prolific authors file " "(e.g., ../data/authors_at_least_20_000_characters.jsonl).",
+    )
     args = parser.parse_args()
 
-    adjacency_matrix, active_subreddits_list, subreddit_to_authors_to_num_posts = get_subreddit_adjacency_matrix(
-        args.input_active_subreddits, args.input_submissions
+    prolific_authors = load_prolific_authors(args.input_prolific_authors)
+    adjacency_matrix, active_subreddits_list, subreddit_to_author_to_num_characters = get_subreddit_adjacency_matrix(
+        args.input_active_subreddits, args.input_author_and_subreddit_to_stats, prolific_authors
     )
-    suitable_authors = get_suitable_authors(adjacency_matrix, active_subreddits_list, subreddit_to_authors_to_num_posts)
+    suitable_authors = get_suitable_authors(
+        adjacency_matrix, active_subreddits_list, subreddit_to_author_to_num_characters
+    )
     get_submissions_for_authors(suitable_authors, args.input_submissions)
     get_comments_for_authors(suitable_authors, args.input_comments)
     with open(args.output_file, "wt") as f:

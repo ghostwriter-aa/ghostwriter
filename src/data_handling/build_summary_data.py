@@ -10,9 +10,11 @@ import tqdm
 from data_handling import reddit_consts
 
 
-def get_author_and_subreddit_counts(input_submissions_file: str) -> tuple[dict[str, int], dict[str, int]]:
-    """Returns the counts of author submissions and subreddit submissions in the filtered dataset."""
-    # This function takes about 3 minutes to run.
+def get_author_and_subreddit_counts(
+    input_submissions_file: str, input_comments_file: str
+) -> tuple[dict[str, int], dict[str, int]]:
+    """Returns the counts of author submissions/comments and subreddit submissions/comments in the filtered dataset."""
+    # This function takes about 25 minutes to run (on an ec2 g5.xlarge).
     authors: dict[str, int] = collections.Counter()
     subreddits: dict[str, int] = collections.Counter()
     with open(input_submissions_file, "rt") as f:
@@ -20,6 +22,11 @@ def get_author_and_subreddit_counts(input_submissions_file: str) -> tuple[dict[s
             submission = json.loads(line)
             authors[submission["author"]] += 1
             subreddits[submission["subreddit"]] += 1
+    with open(input_comments_file, "rt") as f:
+        for line in tqdm.tqdm(f, total=reddit_consts.RC_2024_05_FILTERED_COMMENTS):
+            comment = json.loads(line)
+            authors[comment["author"]] += 1
+            subreddits[comment["subreddit"]] += 1
     return authors, subreddits
 
 
@@ -45,6 +52,13 @@ def main() -> None:
         default="../data/RS_2024-05_filtered",
         required=False,
         help="Path to the input filtered submissions file (e.g., ../data/RS_2024-05_filtered).",
+    )
+    parser.add_argument(
+        "--input_comments",
+        type=str,
+        default="../data/RC_2024-05_filtered",
+        required=False,
+        help="Path to the input filtered comments file (e.g., ../data/RC_2024-05_filtered).",
     )
     parser.add_argument(
         "--output_authors",
@@ -73,7 +87,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    authors, subreddits = get_author_and_subreddit_counts(args.input_submissions)
+    authors, subreddits = get_author_and_subreddit_counts(args.input_submissions, args.input_comments)
     print(f"There are {len(authors)} authors in the filtered dataset.")
     print(f"There are {len(subreddits)} subreddits in the filtered dataset.")
 

@@ -1,0 +1,8 @@
+__pycache__/
+data/
+.idea/
+.venv/
+.DS_Store
+/src/ghostwriter.egg-info/
+src.egg-info/
+summary_data/
