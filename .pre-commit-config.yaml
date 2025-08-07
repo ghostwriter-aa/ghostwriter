@@ -33,6 +33,13 @@ repos:
         language: pygrep
         types: [python]
         exclude: .pre-commit-config.yaml
+      - id: pytest
+        name: Run pytest
+        entry: bash -c 'cd src && pytest tests/'
+        language: system
+        types: [python]
+        pass_filenames: false
+        always_run: true
   - repo: https://github.com/pre-commit/mirrors-clang-format
     rev: v19.1.1
     hooks:

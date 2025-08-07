@@ -24,7 +24,9 @@ tokenizer = tokenization.get_tokenizer()
 TOP_1000_TOKENS_SUCCESS_PROBS_FILE = "../../data/top_1000_tokens_success_probs.json"
 
 # %%
-train_validate_author_to_personas_counters = utils.get_train_validate_author_to_personas_counters(tokenizer)
+train_validate_author_to_personas_counters = utils.get_train_validate_author_to_personas_counters(
+    tokenizer,
+    suitable_author_infos_train_and_validate_dir = "../../data/")
 forty_tokens_to_use = [
     token_int for _, _, token_int
     in utils.load_1000_most_common_tokens_sorted_by_1_gram_accuracies(TOP_1000_TOKENS_SUCCESS_PROBS_FILE)

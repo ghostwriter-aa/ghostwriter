@@ -4,7 +4,7 @@ This project attempts to attribute authorship of text to specific authors. The d
 
 The commands below are to be run from the `src/` directory.
 
-## Steps for building the dataset
+## Building the dataset
 
 1. Install the package: From the projects directory, run
 
@@ -113,24 +113,25 @@ The commands below are to be run from the `src/` directory.
 
    This will split `suitable_author_infos.ndjson` into three files for the train, validation, and test arms (`../data/suitable_author_infos_train.ndjson`, etc.).
 
-## Running the baseline model
+## Training a model
 
-9. To create the common tokens file, run:
+See the instructions for [training the baseline model](src/baseline_model/README.md) or for [training the embedding model](src/contrastive_learning/README.md).
 
-   ```bash
-   python baseline_model/get_token_frequencies.py \
-       --input_author_infos=../data/suitable_author_infos_train.ndjson \
-       --output_file=../data/tiktoken_counts_top_1000.json \
-       --top_k=1000 \
-       --min_author_occurrences=20
-   ```
+## Running inference
 
-   This will create a file with the 1000 most common tokens in the dataset, with at least 20 authors using those tokens.
+To check the output of a model on a given set of author pairs, use the inference pipeline:
 
-10. Optional: run baseline_model/data_exploration.ipynb to get see a comparison of probabilities for tokens to appear in different personas.
+```bash
+python inference/run_inference.py \
+    --model_file=../my_model_dir/my_model_file.json \
+    --author_docs_file=../data/author_docs.parquet \
+    --pairs_to_match_file=../data/required_matches.parquet \
+    --output_file=../data/my_output_file.parquet
+```
 
-11. Run find_best_tokens.ipynb, which will find the best 1-gram single token classifiers. Those will be saved to a file
-    for later use. In the end of it, you will have the base log-likelihood based model, which achieves ±0.79 accuracy,
-    using the 40 best tokens ("best" - in the sense of most accurate 1-gram classifiers).
+The arguments to this command are:
 
-12. Optional: run additional basic models (baseline_model/logistic_regression.ipynb, baseline_model/decision_trees.ipynb), and / or more data exploration (baseline_model/data_exploration_40_best_tokens.ipynb).
+- `--model_file`: JSON file containing model parameters, built by `build_log_likelihood_model.py`.
+- `--author_docs_file`: Parquet file containing the columns `entity` (a string entity identifier), `persona` (a string persona identifier), and `text` (the string containing the document). Any additional columns are ignored.
+- `--pairs_to_match_file`: Parquet file containing the columns `entity1`, `persona1`, `entity2`, and `persona2`, representing the IDs of pairs for which inference is requested. Any additional columns are ignored.
+- `--output_file`: The name of a Parquet file which will be created, containing the columns `entity1`, `persona1`, `entity2`, and `persona2` from `--pairs_to_match_file`, along with a column `match_score`, a floating-point, model-dependent value indicating the similarity between the two personas (higher values indicate a better match for the log likelihood model, for example).

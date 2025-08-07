@@ -8,7 +8,7 @@ import torch
 from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
 from torch.utils.data import DataLoader
 
-from common.common_types import AuthorEmbedding, AuthorEmbeddingCollection
+from common.common_types import AuthorEmbedding, AuthorEmbeddingCollection, EmbeddingModelParams, Model, ModelType
 from common.gpu_utils import detect_device
 from contrastive_learning.author_text_pair_dataset import AuthorTextPairsDataset
 from contrastive_learning.text_sim_clr import TextSimCLR
@@ -53,6 +53,7 @@ def create_tensor_pairs(author_embeddings: List[AuthorEmbedding]) -> List[Tuple[
 def train_simclr(
     train_author_embeddings: List[AuthorEmbedding],
     val_author_embeddings: List[AuthorEmbedding],
+    checkpoint_dir_path: str,
     batch_size: int,
     max_epochs: int,
     **kwargs: Any,
@@ -70,7 +71,7 @@ def train_simclr(
         accelerator = "cpu"
 
     trainer = pl.Trainer(
-        default_root_dir=os.path.join(CURRENT_FILE_PATH.parent.parent / "data" / "checkpoints", "TextSimCLR"),
+        default_root_dir=checkpoint_dir_path,
         accelerator=accelerator,
         devices=1,
         max_epochs=max_epochs,
@@ -105,16 +106,41 @@ def train_simclr(
 def main() -> None:
     parser = argparse.ArgumentParser(description="Train TextSimCLR model on author embeddings.")
     parser.add_argument(
+        "--embedding-model",
+        type=str,
+        help="Name of the embedding model that was used to generate the embeddings.",
+    )
+    parser.add_argument(
+        "--embedding-strategy",
+        type=str,
+        help="Strategy used to generate the embeddings.",
+    )
+    parser.add_argument(
         "--train-embedding-file",
         type=str,
-        default=CURRENT_FILE_PATH.parent.parent / "data" / "embeddings" / "e5_embedding_train_new.json",
+        default=CURRENT_FILE_PATH.parent.parent / "data" / "embeddings" / "e5_embedding_train.json",
         help="Path to the training embedding file.",
     )
     parser.add_argument(
         "--val-embedding-file",
         type=str,
-        default=CURRENT_FILE_PATH.parent.parent / "data" / "embeddings" / "e5_embedding_val_new.json",
+        default=CURRENT_FILE_PATH.parent.parent / "data" / "embeddings" / "e5_embedding_val.json",
         help="Path to the validation embedding file.",
+    )
+    parser.add_argument(
+        "--checkpoint-dir-path",
+        type=str,
+        help="Path to the checkpoint directory in which the model checkpoint will be saved.",
+    )
+    parser.add_argument(
+        "--output-model-checkpoint-file",
+        type=str,
+        help="Path to the model checkpoint file.",
+    )
+    parser.add_argument(
+        "--output-model-file",
+        type=str,
+        help="Path to the trained model (ct.Model) output file.",
     )
     parser.add_argument(
         "--hidden-dim",
@@ -154,10 +180,10 @@ def main() -> None:
 
     assert train_persona_pairs_tensors.embedding_dim == val_persona_pairs_tensors.embedding_dim
 
-    # Train model
-    train_simclr(
+    _, trainer = train_simclr(
         train_persona_pairs_tensors.author_embeddings,
         val_persona_pairs_tensors.author_embeddings,
+        checkpoint_dir_path=args.checkpoint_dir_path,
         batch_size=args.batch_size,
         max_epochs=args.max_epochs,
         input_dim=train_persona_pairs_tensors.embedding_dim,
@@ -167,6 +193,21 @@ def main() -> None:
         temperature=0.07,
         weight_decay=1e-4,
     )
+
+    trainer.save_checkpoint(args.output_model_checkpoint_file)
+    full_model_path = os.path.abspath(args.output_model_checkpoint_file)
+
+    model = Model(
+        model_type=ModelType.EMBEDDING_MODEL,
+        model_params=EmbeddingModelParams(
+            embedding_model=args.embedding_model,
+            embedding_strategy=args.embedding_strategy,
+            embedding_model_checkpoint_path=full_model_path,
+        ),
+    )
+
+    with open(args.output_model_file, "wt", encoding="utf-8") as f:
+        f.write(model.to_json_string())
 
 
 if __name__ == "__main__":

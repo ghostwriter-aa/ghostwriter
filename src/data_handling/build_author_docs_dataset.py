@@ -2,7 +2,6 @@
 
 import argparse
 import collections
-import dataclasses
 import json
 
 import numpy as np
@@ -214,7 +213,7 @@ def main() -> None:
     get_comments_for_authors(suitable_authors, args.input_comments)
     with open(args.output_file, "wt") as f:
         for author in suitable_authors:
-            f.write(json.dumps(dataclasses.asdict(author)) + "\n")
+            f.write(author.to_json_string() + "\n")
 
 
 if __name__ == "__main__":

@@ -7,9 +7,7 @@ python train_test_split.py \
 """
 
 import argparse
-import dataclasses
 import hashlib
-import json
 
 import common.common_types as ct
 
@@ -31,7 +29,7 @@ def split_to_arms(author_infos: list[ct.AuthorInfo], output_prefix: str) -> None
             arm = "val"
         else:
             arm = "test"
-        arm_to_file[arm].write(json.dumps(dataclasses.asdict(author_info)) + "\n")
+        arm_to_file[arm].write(author_info.to_json_string() + "\n")
 
     for file in arm_to_file.values():
         file.close()

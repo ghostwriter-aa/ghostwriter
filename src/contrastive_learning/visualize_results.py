@@ -1,16 +1,15 @@
 # %%
 import subprocess
 
-import pytorch_lightning as pl
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
-import torch
+from numpy.typing import NDArray
 
 from sklearn.metrics.pairwise import cosine_similarity
 
 
-from contrastive_learning.text_sim_clr import TextSimCLR, compute_feature_representation
+from contrastive_learning.text_sim_clr import TextSimCLR, compute_persona_pairs_feature_representation
 from common.common_types import AuthorEmbeddingCollection
 from contrastive_learning.contrastive_learner import create_tensor_pairs
 from common.distribution_comparison_utils import plot_distributions, find_best_cutoff
@@ -100,13 +99,10 @@ plt.show()
 
 # %%
 # Compute feature representations for the validation set
-val_persona_pair_feature_representations = compute_feature_representation(model, val_persona_pairs_tensors)
+val_persona_pair_feature_representations = compute_persona_pairs_feature_representation(model, val_persona_pairs_tensors)
 
 # %%
-def get_cosine_sims(embeddings: list[list[torch.Tensor]])-> tuple[np.ndarray, np.ndarray]:
-
-    # shape: authors, personas (2), embeddings   (dimensions)
-    embeddings = np.asarray(embeddings)
+def get_cosine_sims(embeddings: NDArray[np.float64])-> tuple[np.ndarray, np.ndarray]:
 
     # Calculate cosine similarity between each author's pair of embeddings
     # Reshape from (authors, 2, embeddings) to (authors*2, embeddings)
@@ -137,7 +133,7 @@ best_cutoff, best_success_rate = find_best_cutoff(same_author_sims, diff_author_
 # Below, we can indeed see that this is the case.
 
 # %%
-same_author_sims, diff_author_sims = get_cosine_sims(val_persona_pairs_tensors)
+same_author_sims, diff_author_sims = get_cosine_sims(np.asarray(val_persona_pairs_tensors))
 plot_distributions(same_author_sims, diff_author_sims, "Distribution of Cosine Similarities Between Persona Embeddings using the plain E5 model", "Cosine Similarity", "Density", "Same Author", "Different Authors")
 best_cutoff, best_success_rate = find_best_cutoff(same_author_sims, diff_author_sims)
 

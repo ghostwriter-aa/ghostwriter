@@ -1,10 +1,11 @@
-from typing import Any, List, Tuple
+from typing import Any, List, Tuple, cast
 
 import numpy as np
 import pytorch_lightning as pl
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from numpy.typing import NDArray
 from torch.nn.functional import cosine_similarity
 from torch.optim.lr_scheduler import LRScheduler
 from torch.optim.optimizer import Optimizer
@@ -46,7 +47,7 @@ class TextSimCLR(pl.LightningModule):
         self.save_hyperparameters()
         assert self.hparams.temperature > 0.0, "The temperature must be a positive float!"
 
-        # Apply Linear->ReLU->Linear on persona embedding(s) to get the feature vector
+        # Apply Linear->ReLU->Linear on persona embedding(s) to get the feature vector / head
         if hidden_dim == 0:
             self.g = nn.Sequential(
                 nn.Linear(input_dim, output_dim),
@@ -123,24 +124,62 @@ class TextSimCLR(pl.LightningModule):
         self.info_nce_loss(batch, mode="val")
 
 
-def compute_feature_representation(
+def compute_persona_pairs_feature_representation(
     model: TextSimCLR, persona_pairs: list[list[torch.Tensor]]
-) -> list[list[np.ndarray[Any, np.dtype[np.float64]]]]:
+) -> NDArray[np.float64]:
     """
-    Compute the feature representations of the given persona pairs.
-    The input persona_pairs is a list of lists, where each inner list contains two tensors, which are the persona
-    embeddings of an author.
-    The output is a list of lists, where each inner list contains two numpy arrays, which are the feature
-    representations of the persona embeddings of an author.
+    Compute the feature representations / heads of the given persona pairs.
+
+    Args:
+        model: The `TextSimCLR` model that maps raw persona embeddings
+            to the feature space (trained with contrastive learning).
+        persona_pairs: A list of entries of the type [persona_1_embedding, persona_2_embedding], where
+            persona_1_embedding and persona_2_embedding are the persona embeddings of an author.
+
+    Returns:
+        A numpy array of shape (num_authors, 2, F), where F is the feature space dimension
     """
-    embeddings = []
+    if len(persona_pairs) == 0:
+        return np.array([])
+
+    # Ensure every author has exactly two persona tensors.
+    if not all(len(pair) == 2 for pair in persona_pairs):
+        raise ValueError("Each element in persona_pairs must contain exactly two persona tensors")
+
+    # Flatten all persona tensors and project in a single batch.
+    # The shape of the tensor will be (2 * num_authors, D), where D is the persona embedding dimension
+    flattened_personas = []
+    for pair in persona_pairs:
+        flattened_personas.extend(pair)
+    tensor_flattened_personas = torch.stack(flattened_personas, dim=0)
+
+    # `projected_all` will have shape (2 * num_authors, F), where F is the feature space / head dimension
+    projected_all = compute_feature_representation(model, tensor_flattened_personas).cpu().numpy()
+
+    # Reshape to (num_authors, 2, F)
+    num_authors = len(persona_pairs)
+    return projected_all.reshape(num_authors, 2, projected_all.shape[1])
+
+
+def compute_feature_representation(model: TextSimCLR, embeddings: torch.Tensor) -> torch.Tensor:
+    """
+    Compute the feature representation / head for a batch of persona embeddings.
+
+    Args:
+        model: The `TextSimCLR` model that maps raw persona embeddings
+            to the feature space (trained with contrastive learning).
+        embeddings: A **2-D** tensor of shape (N, D) containing the
+            raw persona embeddings (N personas, each with embedding dimension D)
+            after applying an off the shelf embedding model.
+
+    Returns:
+        A feature representation vector / head after applying `g`, the network trained with
+        contrastive learning.
+        It is a tensor of shape (N, F) where F is the dimensions of the feature space / head.
+    """
     with torch.no_grad():
-        for i in range(len(persona_pairs)):
-            assert len(persona_pairs[i]) == 2
-            author_embeddings = []
-            for j in range(2):
-                # Move tensor to the same device as the model before processing
-                input_tensor = persona_pairs[i][j].to(model.device)
-                author_embeddings.append(model.g(input_tensor).cpu().numpy())
-            embeddings.append(author_embeddings)
-    return embeddings
+        input_tensor = embeddings.to(model.device)
+        # In the PyTorch type stubs, nn.Module.__call__ is declared to return Any.
+        # In our case, the last layer of `model.g` is a Linear layer, which returns a tensor of type torch.Tensor.
+        # So, we can cast the result to a torch.Tensor.
+        return cast(torch.Tensor, model.g(input_tensor)).cpu()
