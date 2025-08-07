@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from typing import Mapping
 
 import numpy as np
 from nomic import embed as nomic_embed  # type: ignore
@@ -111,13 +112,20 @@ class E5MultilingualLargeInstructEmbedder(Embedder):
         )
 
 
+EMBEDDING_MODEL_CLASSES: Mapping[str, type[Embedder]] = {
+    "nomic": NomicEmbedder,
+    "e5": E5Embedder,
+    "e5-multilingual-large-instruct": E5MultilingualLargeInstructEmbedder,
+}
+
+
 class EmbeddingStrategy(ABC):
     """Abstract base class for embedding strategies."""
 
     @abstractmethod
     def compute_single_persona_embedding(
         self, persona: ct.PersonaInfo, embedder: Embedder, batch_size: int
-    ) -> NDArray[np.float32]:
+    ) -> ct.PersonaEmbedding:
         """
         Compute an embedding for a persona using the provided embedder.
 
@@ -126,12 +134,12 @@ class EmbeddingStrategy(ABC):
             embedder: The embedder to use for computing embeddings
             batch_size: Batch size for embedding. Choose according to the memory of the GPU.
         Returns:
-            A single embedding vector as a numpy array
+            A PersonaEmbedding object that contains the averaged embedding vector and metadata.
         """
 
     @abstractmethod
     def compute_authors_embeddings(
-        self, authors: list[ct.AuthorInfo], embedder: Embedder, authors_chunk_size: int, batch_size: int
+        self, authors: list[ct.AuthorInfo], embedder: Embedder, persona_chunk_size: int, batch_size: int
     ) -> list[ct.AuthorEmbedding]:
         """
         Compute an embedding for a list of authors using the provided embedder.
@@ -139,8 +147,8 @@ class EmbeddingStrategy(ABC):
         Args:
             authors: The list of authors to compute embeddings for
             embedder: The embedder to use for computing embeddings
-            authors_chunk_size: Number of authors to embed in each chunk. Note: the reason for this is explained in
-                                AveragePostsStrategy.compute_authors_embeddings.
+            persona_chunk_size: Number of personas to embed in each chunk. Note: the reason for this is explained in
+                                AveragePostsStrategy.compute_persona_embeddings.
             batch_size: Batch size for embedding. Choose according to the memory of the GPU.
         Returns:
             A list of AuthorEmbedding objects
@@ -152,84 +160,130 @@ class AveragePostsStrategy(EmbeddingStrategy):
 
     def compute_single_persona_embedding(
         self, persona: ct.PersonaInfo, embedder: Embedder, batch_size: int
-    ) -> NDArray[np.float32]:
+    ) -> ct.PersonaEmbedding:
         embeddings = embedder.embed_texts(get_persona_texts(persona), batch_size)
-        return np.mean(embeddings, axis=0, dtype=np.float32)  # type: ignore
+        return ct.PersonaEmbedding(subreddit=persona.subreddit, embedding=np.mean(embeddings, axis=0, dtype=np.float32))
+
+    def _persona_list_to_texts_and_index_mapping(
+        self, personas: list[ct.PersonaInfo]
+    ) -> tuple[list[str], NDArray[np.int32]]:
+        """
+        Convert a list of personas to a list of texts and a mapping from text to persona index in the original list.
+        """
+        texts = []
+        text_to_persona_map = []
+        for persona_idx, persona in enumerate(personas):
+            persona_texts = get_persona_texts(persona)
+            for text in persona_texts:
+                texts.append(text)
+                text_to_persona_map.append(persona_idx)
+        return texts, np.array(text_to_persona_map, dtype=np.int32)
+
+    def _average_each_persona(
+        self,
+        chunk_embeddings_array: NDArray[np.float32],
+        text_to_persona_map_array: NDArray[np.int32],
+        personas: list[ct.PersonaInfo],
+    ) -> list[ct.PersonaEmbedding]:
+        personas_embeddings = []
+        for persona_idx, persona in enumerate(personas):
+            # Find all embeddings for this specific persona
+            mask = text_to_persona_map_array == persona_idx
+            persona_embedding_indices = np.where(mask)[0]
+
+            avg_embedding: NDArray[np.float32]
+            if len(persona_embedding_indices) > 0:
+                # Compute average embedding for this persona
+                persona_embeddings_matrix = chunk_embeddings_array[persona_embedding_indices]
+                avg_embedding = np.asarray(
+                    np.mean(persona_embeddings_matrix, axis=0, dtype=np.float32), dtype=np.float32
+                )
+            else:
+                # Handle case where persona has no texts
+                avg_embedding = np.zeros(chunk_embeddings_array.shape[1], dtype=np.float32)
+            personas_embeddings.append(ct.PersonaEmbedding(subreddit=persona.subreddit, embedding=avg_embedding))
+
+        return personas_embeddings
+
+    def compute_persona_embeddings(
+        self, personas: list[ct.PersonaInfo], embedder: Embedder, persona_chunk_size: int, batch_size: int
+    ) -> list[ct.PersonaEmbedding]:
+        """
+        Compute embeddings for a list of personas.
+
+        Note on the implementaiton: we are sending the embedder chunks of personas, but also have batch size that is
+        used by the embedder. Practically, when using e5 models, and giving the embedder the entire list of persona
+        texts, it ran slower on an ec2 g5.xlarge instance (when running according to the readme, embedding
+        suitable_author_infos_train.ndjson, it takes ±1 hour, while using maximal persona chunk size, it takes more
+        than 2 hours).
+
+        Args:
+            personas: The list of personas to compute embeddings for
+            embedder: The embedder to use for computing embeddings
+            persona_chunk_size: Number of personas to embed in each chunk.
+            batch_size: Batch size for embedding. Choose according to the memory of the GPU.
+        Returns:
+            A list of PersonaEmbedding objects
+        """
+
+        all_persona_embeddings: list[ct.PersonaEmbedding] = []
+
+        for chunk_start in tqdm(
+            range(0, len(personas), persona_chunk_size),
+            desc=f"Processing in chunks of {persona_chunk_size} personas",
+        ):
+            chunk_end = min(chunk_start + persona_chunk_size, len(personas))
+            personas_chunk = personas[chunk_start:chunk_end]
+
+            texts, text_to_persona_index = self._persona_list_to_texts_and_index_mapping(personas_chunk)
+
+            chunk_embeddings_array: NDArray[np.float32] = embedder.embed_texts(texts, batch_size)
+
+            all_persona_embeddings.extend(
+                self._average_each_persona(chunk_embeddings_array, text_to_persona_index, personas_chunk)
+            )
+
+        return all_persona_embeddings
 
     def compute_authors_embeddings(
         self,
         authors: list[ct.AuthorInfo],
         embedder: Embedder,
-        authors_chunk_size: int,
+        persona_chunk_size: int,
         batch_size: int,
     ) -> list[ct.AuthorEmbedding]:
         """
         Compute embeddings for a list of authors.
 
-        Note on the implementaiton: we are sending the embedder chunks of authors, but also have batch size that is used
-        by the embedder. Practically, when using e5 models, and giving the embedder the entire list of author texts, it
-        ran slower on an ec2 g5.xlarge instance.
-
         Args:
             authors: The list of authors to compute embeddings for
             embedder: The embedder to use for computing embeddings
-            authors_chunk_size: Number of authors to embed in each chunk.
+            persona_chunk_size: Number of personas to embed in each chunk.
             batch_size: Batch size for embedding. Choose according to the memory of the GPU.
 
         Returns:
             A list of AuthorEmbedding objects
         """
-        all_author_embeddings = []
+        all_author_embeddings: list[ct.AuthorEmbedding] = []
 
-        for chunk_start in tqdm(
-            range(0, len(authors), authors_chunk_size),
-            desc=f"Processing in chunks of {authors_chunk_size} authors",
-        ):
-            chunk_end = min(chunk_start + authors_chunk_size, len(authors))
-            author_chunk = authors[chunk_start:chunk_end]
+        # Flatten to a list of personas
+        personas = []
+        for author in authors:
+            personas.extend(author.personas)
 
-            # Collect all texts from all personas in this chunk and keep track of mapping
-            chunk_texts = []
-            text_to_persona_map = []
+        persona_embeddings = self.compute_persona_embeddings(personas, embedder, persona_chunk_size, batch_size)
 
-            for author_idx, author in enumerate(author_chunk):
-                for persona_idx, persona in enumerate(author.personas):
-                    persona_texts = get_persona_texts(persona)
-                    for text in persona_texts:
-                        chunk_texts.append(text)
-                        text_to_persona_map.append((author_idx, persona_idx))
-
-            chunk_embeddings_array: NDArray[np.float32] = embedder.embed_texts(chunk_texts, batch_size)
-
-            # Group embeddings by persona and compute averages
-            text_to_persona_map_array: NDArray[np.int32] = np.array(text_to_persona_map, dtype=np.int32)
-
-            for author_idx, author in enumerate(author_chunk):
-                persona_embeddings = []
-
-                for persona_idx, persona in enumerate(author.personas):
-                    # Find all embeddings for this specific persona
-                    mask = (text_to_persona_map_array[:, 0] == author_idx) & (
-                        text_to_persona_map_array[:, 1] == persona_idx
-                    )
-                    persona_embedding_indices = np.where(mask)[0]
-
-                    avg_embedding: NDArray[np.float32]
-                    if len(persona_embedding_indices) > 0:
-                        # Compute average embedding for this persona
-                        persona_embeddings_matrix = chunk_embeddings_array[persona_embedding_indices]
-                        avg_embedding = np.asarray(
-                            np.mean(persona_embeddings_matrix, axis=0, dtype=np.float32), dtype=np.float32
-                        )
-                    else:
-                        # Handle case where persona has no texts
-                        avg_embedding = np.zeros(chunk_embeddings_array.shape[1], dtype=np.float32)
-
-                    persona_embeddings.append(ct.PersonaEmbedding(subreddit=persona.subreddit, embedding=avg_embedding))
-
-                all_author_embeddings.append(
-                    ct.AuthorEmbedding(username=author.username, persona_embeddings=persona_embeddings)
-                )
+        # Unflatten to a list of author embeddings
+        current_persona_idx = 0
+        for author in authors:
+            persona_of_author_embeddings = []
+            for persona in author.personas:
+                persona_embedding = persona_embeddings[current_persona_idx]
+                persona_of_author_embeddings.append(persona_embedding)
+                current_persona_idx += 1
+            all_author_embeddings.append(
+                ct.AuthorEmbedding(username=author.username, persona_embeddings=persona_of_author_embeddings)
+            )
 
         return all_author_embeddings
 
@@ -238,7 +292,7 @@ def author_infos_to_embeddings(
     authors_by_arm: dict[str, list[ct.AuthorInfo]],
     embedder: Embedder,
     embedding_strategy: EmbeddingStrategy,
-    authors_chunk_size: int,
+    persona_chunk_size: int,
     batch_size: int,
 ) -> dict[str, ct.AuthorEmbeddingCollection]:
     """
@@ -248,7 +302,7 @@ def author_infos_to_embeddings(
         authors_by_arm: Dictionary with keys "train" and "val" and values lists of AuthorInfo objects
         embedder: Embedder object that computes embeddings for personas
         embedding_strategy: Strategy object that computes embeddings for personas
-        authors_chunk_size: Number of authors to embed in each chunk. Note: the reason for this is explained in
+        persona_chunk_size: Number of personas to embed in each chunk. Note: the reason for this is explained in
                             AveragePostsStrategy.compute_authors_embeddings.
         batch_size: Batch size for embedding. Choose according to the memory of the GPU.
     Returns:
@@ -261,7 +315,7 @@ def author_infos_to_embeddings(
     arm_embeddings = {}
     for arm, authors in authors_by_arm.items():
         author_embeddings = embedding_strategy.compute_authors_embeddings(
-            authors, embedder, authors_chunk_size, batch_size
+            authors, embedder, persona_chunk_size, batch_size
         )
 
         # Create collection for this arm

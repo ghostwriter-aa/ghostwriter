@@ -1,5 +1,4 @@
 import json
-import os
 from collections import Counter
 from pathlib import Path
 from typing import Sequence
@@ -13,8 +12,6 @@ from baseline_model.token_stats import TokenStats
 from common import tokenization
 from common.common_types import AuthorInfo
 from common.utils import random_derangement
-
-TOP_1000_TOKENS_SUCCESS_PROBS_FILE = "../../data/top_1000_tokens_success_probs.json"
 
 
 def get_authors_with_enough_tokens_in_each_persona(
@@ -45,7 +42,7 @@ def get_authors_with_enough_tokens_in_each_persona(
 
 
 def load_1000_most_common_tokens_sorted_by_1_gram_accuracies(
-    top_1000_tokens_success_probs_file: str = TOP_1000_TOKENS_SUCCESS_PROBS_FILE,
+    top_1000_tokens_success_probs_file: str,
 ) -> list[tuple[int, float, int]]:
     """
     Load the top 1000 tokens with their 1-gram classification accuracies.
@@ -58,17 +55,22 @@ def load_1000_most_common_tokens_sorted_by_1_gram_accuracies(
     return sorted(tokens_onegram_accuracy, key=lambda x: x[1], reverse=True)
 
 
-def load_suitable_author_infos_train_validation() -> dict[str, list[ct.AuthorInfo]]:
+def load_suitable_author_infos_train_validation(
+    suitable_author_infos_train_and_validate_dir: str,
+) -> dict[str, list[ct.AuthorInfo]]:
     """
     Load author information for authors with many tokens, according to the saved files of the form
     `suitable_author_infos_{arm}.ndjson`.
+    Args:
+        suitable_author_infos_train_and_validate_dir: String path to the directory containing the train and val suitable
+        author info files. (The files should be named 'suitable_author_infos_train.ndjson' and
+        'suitable_author_infos_val.ndjson'.)
     Returns a dictionary with two keys: "train" and "val". In each key, there is a list of AuthorInfo objects.
     """
-    current_file_path = Path(os.path.dirname(os.path.abspath(__file__)))
     authors_with_many_tokens = {}
     for arm in ["train", "val"]:
         authors_with_many_tokens[arm] = ct.read_author_infos(
-            current_file_path.parent.parent / "data" / f"suitable_author_infos_{arm}.ndjson"
+            Path(suitable_author_infos_train_and_validate_dir) / f"suitable_author_infos_{arm}.ndjson"
         )
         print(f"Loaded {len(authors_with_many_tokens[arm])} authors in {arm} set with many tokens.")
     return authors_with_many_tokens
@@ -93,15 +95,23 @@ def username_to_persona_counters_from_author_infos(
 
 def get_train_validate_author_to_personas_counters(
     tokenizer: tiktoken.Encoding,
+    suitable_author_infos_train_and_validate_dir: str,
 ) -> dict[str, dict[str, list[Counter[int]]]]:
     """
     Load the author counters for the training and validation sets.
-    Returns a dictionary with two keys: "train" and "val". In each key, there is a dictionary keyed by the author
-    username, where the value is a list of two dictionaries, each containing the token counts for the two personas.
+    Args:
+        tokenizer: The tokenizer to use for tokenization.
+        suitable_author_infos_train_and_validate_dir: String path to the directory containing the train and val suitable
+        author info files. (The files should be named 'suitable_author_infos_train.ndjson' and
+        'suitable_author_infos_val.ndjson'.)
+    Returns:
+        Dictionary with two keys: "train" and "val". In each key, there is a dictionary keyed by the author
+        username, where the value is a list of two dictionaries, each containing the token counts for the two personas.
     """
-    authors_with_many_tokens = load_suitable_author_infos_train_validation()
+    authors_with_many_tokens = load_suitable_author_infos_train_validation(suitable_author_infos_train_and_validate_dir)
     authors_counters = {}
     for arm in ["train", "val"]:
+        print(f"Creating author counters for {arm} set...")
         authors_counters[arm] = username_to_persona_counters_from_author_infos(authors_with_many_tokens[arm], tokenizer)
         print(f"Created {len(authors_counters[arm])} author counters for {arm} set.")
     return authors_counters

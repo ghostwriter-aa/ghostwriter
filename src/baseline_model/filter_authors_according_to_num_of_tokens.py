@@ -3,7 +3,6 @@ Filters authors such that each persona has at least X tokens from the most frequ
 """
 
 import argparse
-import dataclasses
 import json
 
 import common.common_types as ct
@@ -26,7 +25,7 @@ def main(input_file: str, output_file: str, sufficient_tokens: int, most_frequen
 
     with open(output_file, "wt") as f:
         for author in authors_with_enough_tokens_in_each_persona:
-            f.write(json.dumps(dataclasses.asdict(author)) + "\n")
+            f.write(author.to_json_string() + "\n")
 
 
 if __name__ == "__main__":

@@ -33,15 +33,20 @@ This module contains the code for the contrastive learning model.
 
    ```bash
    python3 contrastive_learning/contrastive_learner.py \
+       --embedding-model e5 \
+       --embedding-strategy average_posts \
        --train-embedding-file ./../data/embeddings/e5_embedding_train.json \
        --val-embedding-file ./../data/embeddings/e5_embedding_val.json \
+       --checkpoint-dir-path ./../models/checkpoints/TextSimCLR \
+       --output-model-checkpoint-file ./../models/TextSimCLR.pt \
+       --output-model-file ./../models/e5_contrastive_learning_embedding_model.json \
        --hidden-dim 0 \
        --output-dim 256 \
        --batch-size 64 \
        --max-epochs 15
    ```
 
-   For the training set of about 3700 samples, the above takes about 2 mins for 15 epochs on ec2.g5 instance.
+   For the training set of about 17,000 samples, the above takes about 2 mins for 15 epochs on ec2.g5 instance.
 
    This will train a SimCLR model that learns to distinguish between different writing styles. The model will be saved
    in the `./../data/checkpoints/TextSimCLR` directory.
@@ -50,13 +55,5 @@ This module contains the code for the contrastive learning model.
    Open and run `visualize_results.ipynb` to see performance metrics - accuracy when the prior is 0.5 prob of the same
    author and 0.5 probability of different authors (when given two persona vector embeddings).
 
-4. Optional: Train with
-   ```bash
-   python3 contrastive_learning/contrastive_learner.py \
-       --train-embedding-file ./../data/embeddings/e5_embedding_train.json \
-       --val-embedding-file ./../data/embeddings/e5_embedding_val.json \
-       --hidden-dim 256 \
-       --output-dim 128 \
-       --batch-size 64
-   ```
-   to see the results of a deeper neural network (256 -> 128, fully connected). The results are almost identical.
+4. Optional: Train with hidden dimension 256 and output dimension 128 to see the results of a deeper neural network.
+   The results are almost identical. Therefore, we avoid including the hidden layer to reduce overfitting.
